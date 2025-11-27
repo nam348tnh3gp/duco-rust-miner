@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
     g++ \
+    clang \
     cmake \
     libssl-dev \
     libcurl4-openssl-dev \
