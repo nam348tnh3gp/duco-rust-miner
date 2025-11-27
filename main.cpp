@@ -15,7 +15,7 @@
 
 // Dependencies for DuinoCoin Mining
 #include <openssl/sha.h> // Hashing
-#include <curl/curl.h>   // HTTP Requests
+#include <curl/curl.h>   // HTTP Requests (Giữ lại nhưng không dùng trong get_pool)
 #include <sys/socket.h>  // Socket Networking
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -23,7 +23,6 @@
 
 // --- I. Cấu trúc Dữ liệu và Tiện ích ---
 
-// ⚠️ LƯU Ý: Đây là JSON parser đơn giản, nên thay thế bằng thư viện chuẩn (ví dụ: nlohmann/json)
 namespace simple_json {
     // [Giữ nguyên Json parser cơ bản của bạn]
     class Json {
@@ -105,7 +104,7 @@ struct Config {
     int thread_count;
     int reconnect_delay_secs;
     int stats_interval_shares;
-    int socket_timeout_secs; // Cải tiến: Thêm timeout cấu hình
+    int socket_timeout_secs; 
 };
 
 struct PoolInfo {
@@ -193,7 +192,7 @@ private:
     
     std::mutex console_mutex_;
     
-    // HTTP callback cho CURL
+    // HTTP callback cho CURL (Giữ lại nhưng không dùng)
     static size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
         size_t total_size = size * nmemb;
         std::string* response = static_cast<std::string*>(userp);
@@ -201,7 +200,7 @@ private:
         return total_size;
     }
     
-    // Hàm HTTP GET
+    // Hàm HTTP GET (Giữ lại nhưng không dùng)
     std::string http_get(const std::string& url) {
         CURL* curl = curl_easy_init();
         if (!curl) {
@@ -227,32 +226,18 @@ private:
         return response;
     }
     
-    // Lấy thông tin Pool
+    // ⚠️ ĐÃ THAY ĐỔI: Sử dụng IP cố định thay vì gọi getPool API
     PoolInfo get_pool() {
-        try {
-            std::string response = http_get("https://server.duinocoin.com/getPool");
-            print_message(-1, "📡 Pool API response: " + response.substr(0, std::min(response.length(), (size_t)80)) + "...");
-            
-            simple_json::Json json(response);
-            
-            if (!json.get_bool("success", true)) {
-                throw std::runtime_error("Pool API returned failure");
-            }
-            
-            PoolInfo pool;
-            pool.ip = json.get_string("ip");
-            pool.port = json.get_int("port", 0);
-            pool.name = json.value("name", "unknown");
-            
-            if (pool.ip.empty() || pool.port == 0) {
-                throw std::runtime_error("Invalid pool data: IP or port missing");
-            }
-            
-            print_message(-1, "🔍 Parsed - IP: " + pool.ip + ", Port: " + std::to_string(pool.port) + ", Name: " + pool.name);
-            return pool;
-        } catch (const std::exception& e) {
-            throw std::runtime_error(std::string("Failed to get pool info: ") + e.what());
-        }
+        PoolInfo pool;
+        
+        // Dữ liệu Pool cố định: 203.86.195.49:2850
+        pool.ip = "203.86.195.49";
+        pool.port = 2850;
+        pool.name = "darkhunter-node-1 (STATIC)"; 
+        
+        print_message(-1, "🎯 Sử dụng Pool Cố Định: " + pool.ip + ", Port: " + std::to_string(pool.port) + ", Name: " + pool.name);
+        
+        return pool;
     }
     
     // In thông báo Thread-safe
@@ -266,7 +251,7 @@ private:
         }
     }
     
-    // Cải tiến: Kết nối Socket với Timeout
+    // Kết nối Socket với Timeout
     int connect_to_pool(const std::string& host, int port) {
         int sockfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sockfd < 0) {
@@ -294,7 +279,6 @@ private:
         print_message(-1, "🔌 Connecting to " + host + ":" + std::to_string(port) + "...");
         
         if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-            // Không sử dụng perror để tránh log không cần thiết, ném ngoại lệ rõ ràng hơn
             close(sockfd);
             throw std::runtime_error("Connection failed or timed out to " + host);
         }
@@ -309,11 +293,11 @@ private:
         }
     }
     
-    // Cải tiến: Nhận dữ liệu Socket (Đọc theo dòng, giới hạn buffer để an toàn hơn)
+    // Nhận dữ liệu Socket (Đọc theo dòng)
     std::string receive_line(int sockfd) {
         std::string line;
         char buffer[1];
-        const int MAX_LINE_LENGTH = 1024; // Giới hạn độ dài dòng để tránh tràn bộ nhớ
+        const int MAX_LINE_LENGTH = 1024; 
 
         while (true) {
             ssize_t bytes_received = recv(sockfd, buffer, 1, 0);
@@ -343,11 +327,9 @@ private:
     
     Job receive_job(int sockfd) {
         std::string request = "JOB," + config_.username + "," + config_.difficulty + "," + config_.mining_key + "\n";
-        // print_message(-1, "📤 Sending: " + request.substr(0, request.length() - 1)); // Log gọn
         send_data(sockfd, request);
         
         std::string response = receive_line(sockfd);
-        // print_message(-1, "📥 Received: " + response); // Log gọn
         
         std::stringstream ss(response);
         std::string token;
@@ -374,23 +356,23 @@ private:
         return job;
     }
     
-    // Cải tiến: Tối ưu vòng lặp SHA1
+    // Tối ưu vòng lặp SHA1
     Solution solve_job(const Job& job) {
         auto start = std::chrono::steady_clock::now();
         
         int max_nonce = job.diff * 100 + 1000;
         if (max_nonce <= 0) max_nonce = 5000;
         
-        // Chuẩn bị buffer để tối ưu: Job.base + "nonce" + null terminator
+        // Chuẩn bị buffer 
         std::string current_data = job.base + std::to_string(0); 
-        current_data.resize(job.base.length() + std::to_string(max_nonce).length()); // Đảm bảo đủ dung lượng
+        current_data.resize(job.base.length() + std::to_string(max_nonce).length()); 
         
         // Vị trí bắt đầu của Nonce trong chuỗi
         size_t nonce_start_pos = job.base.length();
 
         for (int nonce = 0; nonce <= max_nonce && running_; ++nonce) {
             
-            // Cải tiến: CHỈ cập nhật phần Nonce trong chuỗi, KHÔNG cấp phát lại toàn bộ chuỗi
+            // CHỈ cập nhật phần Nonce trong chuỗi
             std::string nonce_str = std::to_string(nonce);
             current_data.replace(nonce_start_pos, current_data.length() - nonce_start_pos, nonce_str);
             current_data.resize(nonce_start_pos + nonce_str.length());
@@ -399,7 +381,7 @@ private:
             unsigned char hash[SHA_DIGEST_LENGTH];
             SHA1(reinterpret_cast<const unsigned char*>(current_data.c_str()), current_data.length(), hash);
             
-            // So sánh Hash (Tận dụng std::equal thay vì tạo vector mới)
+            // So sánh Hash 
             if (std::equal(hash, hash + SHA_DIGEST_LENGTH, job.target.begin())) {
                 auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - start);
@@ -407,11 +389,6 @@ private:
                 
                 total_hashes_ += nonce;
                 return Solution{nonce, hashrate};
-            }
-            
-            // Progress indicator
-            if (nonce % 10000 == 0) {
-                // print_message(-1, "⏳ Progress: " + std::to_string(nonce) + "/" + std::to_string(max_nonce));
             }
         }
         
@@ -456,6 +433,7 @@ private:
         while (running_) {
             int sockfd = -1;
             try {
+                // Lấy Pool info (Sử dụng IP cố định đã cấu hình)
                 PoolInfo pool = get_pool();
                 
                 sockfd = connect_to_pool(pool.ip, pool.port);
@@ -493,9 +471,6 @@ private:
                                 print_message(-1, stats.str());
                             }
                         }
-                    } else {
-                        // Job hết Nonce nhưng không tìm thấy
-                        // print_message(worker_id, "⚠️ Failed to solve job in time");
                     }
                 }
                 
