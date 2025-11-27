@@ -19,7 +19,7 @@ WORKDIR /app
 COPY . .
 
 # Biên dịch code sang file thực thi tên là 'ultra_miner'
-RUN g++ -o ultra_miner ultra_miner.cpp -O2 -lssl -lcrypto -lcurl -lpthread
+RUN  make
 
 # Chạy tool
 CMD ["./ultra_miner"]
