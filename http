@@ -28,7 +28,7 @@ class HTTPProxy:
                 url=url,
                 headers=headers,
                 data=data,
-                timeout=30,
+                timeout=60,  # Tăng timeout để xử lý site chậm như YouTube
                 allow_redirects=True
             )
             return {
@@ -43,6 +43,19 @@ class HTTPProxy:
             return {'success': False, 'error': str(e)}
 
 proxy = HTTPProxy()
+
+def is_safe_url(url):
+    """Validate URL để tránh proxy unsafe domains"""
+    try:
+        result = urlparse(url)
+        if result.scheme not in ('http', 'https'):
+            return False
+        domain = result.netloc.lower()
+        if 'localhost' in domain or domain.startswith(('127.', '192.168.', '10.', '::1')):
+            return False
+        return True
+    except:
+        return False
 
 @app.route('/')
 def home():
@@ -75,8 +88,15 @@ def http_proxy():
     if not url:
         return jsonify({'error': 'Missing url parameter'}), 400
    
-    # Get request details
+    if not is_safe_url(url):
+        return jsonify({'error': 'Invalid or unsafe URL'}), 400
+   
+    # Giới hạn method để tránh lạm dụng (chỉ GET/HEAD cho proxy đơn giản như YouTube)
     method = request.method
+    if method not in ['GET', 'HEAD']:
+        return jsonify({'error': 'Only GET/HEAD allowed for this proxy'}), 405
+   
+    # Get request details
     headers = {key: value for key, value in request.headers if key.lower() not in ['host', 'content-length']}
    
     # Get request data
@@ -93,10 +113,18 @@ def http_proxy():
         status=result['status_code']
     )
    
-    # Copy headers
+    # Copy headers, nhưng giữ Content-Encoding nếu có (để browser xử lý nén đúng cách)
+    forbidden_headers = ['transfer-encoding', 'content-length', 'connection', 'keep-alive', 'proxy-connection', 'upgrade']
     for key, value in result['headers'].items():
-        if key.lower() not in ['content-encoding', 'transfer-encoding', 'content-length']:
+        if key.lower() not in forbidden_headers:
             response.headers[key] = value
+   
+    # Đảm bảo Content-Type đúng cho HTML (nếu thiếu)
+    if 'Content-Type' not in response.headers:
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+   
+    # Thêm CORS nếu cần (cho YouTube hoặc cross-origin)
+    response.headers['Access-Control-Allow-Origin'] = '*'
    
     return response
 
@@ -106,6 +134,9 @@ def get_content():
     url = request.args.get('url')
     if not url:
         return jsonify({'error': 'Missing url parameter'}), 400
+   
+    if not is_safe_url(url):
+        return jsonify({'error': 'Invalid or unsafe URL'}), 400
    
     result = proxy.proxy_request(url)
    
@@ -126,6 +157,9 @@ def image_proxy():
    
     if not image_url:
         return jsonify({'error': 'Missing url parameter'}), 400
+   
+    if not is_safe_url(image_url):
+        return jsonify({'error': 'Invalid or unsafe URL'}), 400
    
     logging.info(f"Proxying image from: {image_url}")
    
@@ -152,10 +186,14 @@ def image_proxy():
     )
    
     # Sao chép các header quan trọng (ví dụ: Cache-Control)
+    forbidden_headers = ['transfer-encoding', 'content-length', 'connection', 'keep-alive', 'proxy-connection', 'upgrade']
     for key, value in result['headers'].items():
         key_lower = key.lower()
-        if key_lower not in ['content-encoding', 'transfer-encoding', 'content-length', 'content-type']:
+        if key_lower not in forbidden_headers and key_lower != 'content-type':
             response.headers[key] = value
+   
+    # Thêm CORS cho ảnh
+    response.headers['Access-Control-Allow-Origin'] = '*'
    
     return response
 
