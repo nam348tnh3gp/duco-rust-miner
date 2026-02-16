@@ -15,14 +15,14 @@ class HTTPProxy:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15'
         })
-    
+   
     def proxy_request(self, url, method='GET', headers=None, data=None):
         """Proxy HTTP request"""
         try:
             # Chỉ cho phép các phương thức an toàn (safe methods) cho GET/image proxy
             if method.upper() not in ['GET', 'HEAD']:
                 method = 'GET'
-                
+               
             response = self.session.request(
                 method=method.upper(),
                 url=url,
@@ -44,23 +44,19 @@ class HTTPProxy:
 
 proxy = HTTPProxy()
 
-## Các endpoints hiện có (Không thay đổi nhiều, chỉ thêm /image_proxy vào danh sách API)
-# ---
-
 @app.route('/')
 def home():
     return '''
     <h1>🌐 HTTP Proxy on Render.com</h1>
     <p><strong>Dành cho iPhone & Web Browser</strong></p>
-    
+   
     <h3>📱 Cách dùng trên iPhone:</h3>
     <ol>
         <li>Vào <strong>Settings → Wi-Fi</strong></li>
         <li>Chọn mạng Wi-Fi → <strong>Configure Proxy</strong></li>
         <li>Chọn <strong>Auto</strong></li>
-        <li>URL: <code>https://your-app.onrender.com/proxy.pac</code></li>
+        <li>URL: <code>https://http-proxy-wwni.onrender.com/proxy.pac</code></li>
     </ol>
-
     <h3>🔧 API Endpoints:</h3>
     <ul>
         <li><code>/proxy?url=https://example.com</code> - HTTP Proxy</li>
@@ -70,38 +66,38 @@ def home():
         <li><code>/proxy.pac</code> - Auto-config for iPhone</li>
     </ul>
     '''
-    
+
 @app.route('/proxy', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def http_proxy():
     """HTTP Proxy endpoint"""
     url = request.args.get('url')
-    
+   
     if not url:
         return jsonify({'error': 'Missing url parameter'}), 400
-    
+   
     # Get request details
     method = request.method
     headers = {key: value for key, value in request.headers if key.lower() not in ['host', 'content-length']}
-    
+   
     # Get request data
     request_data = request.get_data() if request.get_data() else None
-    
+   
     result = proxy.proxy_request(url, method, headers, request_data)
-    
+   
     if not result['success']:
         return jsonify({'error': result['error']}), 500
-    
+   
     # Return response
     response = Response(
         result['content'],
         status=result['status_code']
     )
-    
+   
     # Copy headers
     for key, value in result['headers'].items():
         if key.lower() not in ['content-encoding', 'transfer-encoding', 'content-length']:
             response.headers[key] = value
-    
+   
     return response
 
 @app.route('/get')
@@ -110,12 +106,12 @@ def get_content():
     url = request.args.get('url')
     if not url:
         return jsonify({'error': 'Missing url parameter'}), 400
-    
+   
     result = proxy.proxy_request(url)
-    
+   
     if not result['success']:
         return jsonify({'error': result['error']}), 500
-    
+   
     return jsonify({
         'url': result['url'],
         'status_code': result['status_code'],
@@ -123,49 +119,45 @@ def get_content():
         'content_preview': result['content'][:500].decode('utf-8', errors='ignore') + '...'
     })
 
-# --- Endpoint MỚI để hiển thị ảnh ---
-
 @app.route('/image_proxy')
 def image_proxy():
     """Endpoint để proxy và hiển thị ảnh"""
     image_url = request.args.get('url')
-    
+   
     if not image_url:
         return jsonify({'error': 'Missing url parameter'}), 400
-    
+   
     logging.info(f"Proxying image from: {image_url}")
-    
+   
     # Gọi hàm proxy_request. Chỉ cần GET
     result = proxy.proxy_request(image_url, method='GET')
-    
+   
     if not result['success']:
         logging.error(f"Failed to proxy image {image_url}: {result['error']}")
         return jsonify({'error': f"Failed to fetch image: {result['error']}"}), 500
-
+   
     # Kiểm tra Content-Type để xác nhận đó là ảnh và lấy MIME type
     content_type = result['headers'].get('Content-Type')
-    
+   
     # Kiểm tra đơn giản: nếu Content-Type không bắt đầu bằng 'image/', trả lỗi
     if not content_type or not content_type.startswith('image/'):
         logging.warning(f"URL {image_url} did not return an image content type: {content_type}")
-        return jsonify({'error': f'URL does not point to an image. Content-Type: {content_type}'}), 415 # 415 Unsupported Media Type
-
+        return jsonify({'error': f'URL does not point to an image. Content-Type: {content_type}'}), 415  # 415 Unsupported Media Type
+   
     # Trả về Response
     response = Response(
         result['content'],
         status=result['status_code'],
-        mimetype=content_type # Thiết lập MIME type để trình duyệt hiển thị ảnh
+        mimetype=content_type  # Thiết lập MIME type để trình duyệt hiển thị ảnh
     )
-    
+   
     # Sao chép các header quan trọng (ví dụ: Cache-Control)
     for key, value in result['headers'].items():
         key_lower = key.lower()
         if key_lower not in ['content-encoding', 'transfer-encoding', 'content-length', 'content-type']:
             response.headers[key] = value
-            
+   
     return response
-
-# ---
 
 @app.route('/ip')
 def get_ip():
@@ -174,7 +166,7 @@ def get_ip():
         'http://httpbin.org/ip',
         'http://api.ipify.org?format=json',
     ]
-    
+   
     results = {}
     for test_url in test_urls:
         result = proxy.proxy_request(test_url)
@@ -182,7 +174,7 @@ def get_ip():
             results[test_url] = result['content'].decode('utf-8')
         else:
             results[test_url] = f'Error: {result["error"]}'
-    
+   
     return jsonify({
         'your_ip': request.headers.get('X-Forwarded-For', request.remote_addr),
         'proxy_server': 'Render.com HTTP Proxy',
@@ -194,11 +186,12 @@ def proxy_pac():
     """PAC file for iPhone auto-config"""
     pac_script = '''
     function FindProxyForURL(url, host) {
-        // Proxy tất cả traffic qua HTTP Proxy
-        return "PROXY %s:443; DIRECT";
+        // Sử dụng HTTPS proxy (Render hỗ trợ HTTPS tự động trên port 443)
+        return "HTTPS http-proxy-wwni.onrender.com:443; DIRECT";
+        // Nếu muốn dùng HTTP proxy thay vì HTTPS: 
+        // return "PROXY http-proxy-wwni.onrender.com:443; DIRECT";
     }
-    ''' % request.host
-    
+    '''
     return Response(pac_script, mimetype='application/x-ns-proxy-autoconfig')
 
 @app.route('/test')
@@ -206,7 +199,7 @@ def test():
     """Test proxy functionality"""
     test_url = 'http://httpbin.org/ip'
     result = proxy.proxy_request(test_url)
-    
+   
     return jsonify({
         'proxy_server': 'Render.com HTTP Proxy',
         'test_url': test_url,
